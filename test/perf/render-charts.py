@@ -110,7 +110,7 @@ def render_baseline_vs_clearance(
     *,
     baseline_label: str = LABEL_BASELINE,
     clearance_label: str = LABEL_CLEARANCE,
-    title: str = "challenge-proxy-wasm: no challenger vs valid token",
+    title: str = "pow-proxy-wasm: no challenger vs valid token",
 ) -> None:
     """Side-by-side latency + throughput comparison chart."""
     apply_style()
@@ -323,7 +323,7 @@ def cmd_bundle(results_dir: Path, out_dir: Path) -> int:
             _, summary = latest[(profile, scenario)]
             series.append((f"{profile}/{scenario}", summary))
         if series:
-            render_overlay(series, "challenge-proxy-wasm k6 latency", out_dir / "perf-overlay.png")
+            render_overlay(series, "pow-proxy-wasm k6 latency", out_dir / "perf-overlay.png")
 
     # Optional: include challenge-issue in a secondary overlay
     series_all: list[tuple[str, dict]] = []
@@ -346,7 +346,7 @@ def cmd_bundle(results_dir: Path, out_dir: Path) -> int:
     if len(series_all) > 2:
         render_overlay(
             series_all,
-            "challenge-proxy-wasm — all scenarios (latency)",
+            "pow-proxy-wasm — all scenarios (latency)",
             out_dir / "perf-all-scenarios.png",
         )
 
@@ -364,7 +364,7 @@ def cmd_bundle(results_dir: Path, out_dir: Path) -> int:
                 out_dir / "memory-overlay.png",
             )
         elif mem_runs:
-            render_memory_overlay(mem_runs, "challenge-proxy-wasm memory", out_dir / "memory-overlay.png")
+            render_memory_overlay(mem_runs, "pow-proxy-wasm memory", out_dir / "memory-overlay.png")
     except ValueError as exc:
         print(f"WARN: memory chart skipped: {exc}", file=sys.stderr)
 
@@ -381,7 +381,7 @@ def cmd_compare(left: Path, right: Path, output: Path, left_label: str, right_la
         output,
         baseline_label=left_label,
         clearance_label=right_label,
-        title="challenge-proxy-wasm: no challenger vs valid token",
+        title="pow-proxy-wasm: no challenger vs valid token",
     )
     return 0
 
