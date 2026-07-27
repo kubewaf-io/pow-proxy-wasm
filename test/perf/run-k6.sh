@@ -27,7 +27,7 @@ PERF_ENVOY_CONTAINER="${PERF_ENVOY_CONTAINER:-pow-proxy-wasm-perf-envoy}"
 # renovate: datasource=docker depName=envoyproxy/envoy versioning=loose
 ENVOY_IMAGE="${ENVOY_IMAGE:-envoyproxy/envoy:v1.33-latest}"
 # renovate: datasource=docker depName=grafana/k6
-K6_IMAGE="${K6_IMAGE:-grafana/k6:0.57.0}"
+K6_IMAGE="${K6_IMAGE:-grafana/k6:0.59.0}"
 KEEP_RUNNING="${KEEP_RUNNING:-0}"
 PERF_CI="${PERF_CI:-0}"
 RUN_COMPARE="${RUN_COMPARE:-0}"
