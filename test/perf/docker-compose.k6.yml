@@ -1,0 +1,40 @@
+# k6 performance test stack for pow-proxy-wasm.
+services:
+  envoy:
+    image: ${ENVOY_IMAGE:-envoyproxy/envoy:v1.33-latest}
+    container_name: ${PERF_ENVOY_CONTAINER:-pow-proxy-wasm-perf-envoy}
+    command: ["envoy", "-c", "/etc/envoy.yaml", "--log-level", "warn"]
+    ports:
+      - "${PERF_HOST_PORT:-18080}:8080"
+      - "${PERF_ADMIN_PORT:-19901}:9901"
+    volumes:
+      - ${CHALLENGE_WASM:-../../build/main.wasm}:/etc/envoy/plugin.wasm:ro
+      - ./profiles/${PERF_PROFILE:-challenge}.yaml:/etc/envoy.yaml:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "${PERF_CPU_LIMIT:-2}"
+          memory: ${PERF_MEMORY_LIMIT:-1G}
+
+  k6:
+    # renovate: datasource=docker depName=grafana/k6
+    image: ${K6_IMAGE:-grafana/k6:0.57.0}
+    depends_on:
+      - envoy
+    volumes:
+      - ./k6:/scripts:ro
+      - ./results:/results
+    environment:
+      - BASE_URL=http://envoy:8080
+      - PERF_PROFILE=${PERF_PROFILE:-challenge}
+      - PERF_SCENARIO=${PERF_SCENARIO:-challenge-issue}
+      - PERF_VUS=${PERF_VUS:-32}
+      - PERF_DURATION=${PERF_DURATION:-60s}
+      - PERF_WARMUP=${PERF_WARMUP:-15s}
+      - PERF_P99_MS=${PERF_P99_MS:-200}
+      - PERF_FAIL_RATE=${PERF_FAIL_RATE:-0.01}
+      - CLEARANCE_COOKIE=${CLEARANCE_COOKIE:-}
+    command:
+      - run
+      - --summary-export=/results/k6-summary.json
+      - /scripts/scenarios/${PERF_SCENARIO:-challenge-issue}.js

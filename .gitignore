@@ -1,0 +1,26 @@
+# Build
+/build/
+/dist/
+*.wasm
+!test/**/*.wasm
+
+# Test tools & results
+/test/.tools/
+/test/perf/results/
+/test/perf/release-charts/
+/test/perf/.noop.wasm
+/test/perf/.coraza/
+
+# Go
+/vendor/
+*.test
+*.out
+coverage.html
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+__pycache__/
+*.pyc

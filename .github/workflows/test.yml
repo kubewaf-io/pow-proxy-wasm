@@ -1,0 +1,101 @@
+name: test
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # Pin 1.24.x: Go 1.25+ wasip1 imports path_filestat_get (Envoy missing).
+          go-version: "1.24.x"
+      - name: Unit tests
+        run: make test-unit
+      - name: Benchmarks (smoke)
+        run: make test-bench
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+      - name: Build WASM
+        run: make build
+      - name: Upload main.wasm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pow-proxy-wasm
+          path: build/main.wasm
+          retention-days: 1
+          if-no-files-found: error
+
+  integration:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+      - name: Download main.wasm
+        uses: actions/download-artifact@v4
+        with:
+          name: pow-proxy-wasm
+          path: build
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl git
+      - name: Pre-pull Envoy image
+        run: docker pull envoyproxy/envoy:v1.33-latest
+      - name: Bats integration tests
+        run: make test-bats ENVOY_IMAGE=envoyproxy/envoy:v1.33-latest
+
+  perf:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+      - name: Download main.wasm
+        uses: actions/download-artifact@v4
+        with:
+          name: pow-proxy-wasm
+          path: build
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl git python3 python3-matplotlib
+      - name: k6 performance (baseline vs valid token + chart)
+        run: make test-perf-k6-ci ENVOY_IMAGE=envoyproxy/envoy:v1.33-latest
+      - name: Verify comparison chart
+        if: always()
+        run: |
+          test -f test/perf/release-charts/baseline-vs-clearance.png \
+            || test -f test/perf/release-charts/perf-overlay.png
+      - name: Upload perf results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-results
+          path: |
+            test/perf/results/**/k6-report.html
+            test/perf/results/**/k6-summary.json
+            test/perf/results/**/k6-stdout.txt
+            test/perf/release-charts/baseline-vs-clearance.png
+            test/perf/release-charts/perf-overlay.png
+            test/perf/release-charts/memory-overlay.png
+            test/perf/release-charts/*.png
+          retention-days: 14
+          if-no-files-found: ignore

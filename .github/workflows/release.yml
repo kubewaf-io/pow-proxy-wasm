@@ -1,0 +1,149 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build WASM
+        run: make build
+
+      - name: Package release wasm artifacts
+        run: |
+          mkdir -p dist
+          cp build/main.wasm dist/pow-proxy-wasm.wasm
+          cp build/main.wasm dist/main.wasm
+          sha256sum dist/pow-proxy-wasm.wasm | awk '{print $1}' > dist/pow-proxy-wasm.wasm.sha256
+          echo "pow-proxy-wasm.wasm sha256: $(cat dist/pow-proxy-wasm.wasm.sha256)"
+
+      - name: Build and push OCI image
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          make oci-build IMAGE="${IMAGE}:${TAG}"
+          docker push "${IMAGE}:${TAG}"
+          docker tag "${IMAGE}:${TAG}" "${IMAGE}:${VERSION}"
+          docker push "${IMAGE}:${VERSION}"
+          # Do not promote pre-releases (alpha/beta/rc) to :latest
+          if [[ ! "$TAG" =~ (alpha|beta|rc) ]]; then
+            docker tag "${IMAGE}:${TAG}" "${IMAGE}:latest"
+            docker push "${IMAGE}:latest"
+            echo "Pushed ${IMAGE}:${TAG}, :${VERSION}, :latest"
+          else
+            echo "Pushed ${IMAGE}:${TAG}, :${VERSION} (skipped :latest for pre-release)"
+          fi
+
+      - name: Upload wasm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pow-proxy-wasm
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+
+      - name: Download wasm artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: pow-proxy-wasm
+          path: dist
+
+      - name: Stage wasm for perf
+        run: |
+          mkdir -p build
+          cp dist/main.wasm build/main.wasm
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl git python3 python3-matplotlib
+
+      - name: Perf compare (no challenger vs valid token) + charts
+        run: make test-perf-k6-ci ENVOY_IMAGE=envoyproxy/envoy:v1.33-latest
+
+      - name: Conventional commit changelog since last release
+        id: changelog
+        uses: mikepenz/release-changelog-builder-action@v6
+        with:
+          mode: COMMIT
+          toTag: ${{ github.ref_name }}
+          outputFile: conventional-changelog.md
+          configurationJson: |
+            {
+              "template": "#{{CHANGELOG}}",
+              "categories": [
+                { "title": "## 🚀 Features", "labels": ["feat", "feature"] },
+                { "title": "## 🐛 Bug Fixes", "labels": ["fix", "bug"] },
+                { "title": "## 📚 Documentation", "labels": ["docs"] },
+                { "title": "## ⚡ Performance", "labels": ["perf"] },
+                { "title": "## 🔧 Refactoring", "labels": ["refactor"] },
+                { "title": "## ✅ Tests", "labels": ["test"] },
+                { "title": "## 🏗 Build", "labels": ["build"] },
+                { "title": "## 🔁 CI", "labels": ["ci"] },
+                { "title": "## 📦 Other", "labels": ["chore", "revert", "style"] }
+              ],
+              "label_extractor": [
+                {
+                  "pattern": "^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test){1}(\\([\\w\\-\\.]+\\))?(!)?: ([\\w ])+([\\s\\S]*)",
+                  "on_property": "title",
+                  "target": "$1"
+                }
+              ]
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write release notes
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          chmod +x scripts/write-release-notes.sh
+          ./scripts/write-release-notes.sh release-notes.md test/perf/release-charts conventional-changelog.md
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release-notes.md
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+          files: |
+            dist/pow-proxy-wasm.wasm
+            dist/main.wasm
+            dist/pow-proxy-wasm.wasm.sha256
+            test/perf/release-charts/*.png
