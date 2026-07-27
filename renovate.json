@@ -1,0 +1,106 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "labels": ["dependencies"],
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "rangeStrategy": "bump",
+  "postUpdateOptions": ["gomodTidy"],
+  "ignorePaths": [
+    "**/vendor/**",
+    "**/test/.tools/**",
+    "**/test/perf/results/**",
+    "**/build/**",
+    "**/dist/**"
+  ],
+  "packageRules": [
+    {
+      "description": "Group Envoy image pins across Makefile, compose, workflows, and scripts",
+      "matchDepNames": ["envoyproxy/envoy"],
+      "groupName": "envoy"
+    },
+    {
+      "description": "Group Grafana k6 image pins",
+      "matchDepNames": ["grafana/k6"],
+      "groupName": "k6"
+    },
+    {
+      "description": "Group GitHub Actions major updates",
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions"
+    },
+    {
+      "description": "Group Go module updates",
+      "matchManagers": ["gomod"],
+      "groupName": "go-modules"
+    },
+    {
+      "description": "proxy-wasm-go-sdk is often a pseudo-version; keep reviews small",
+      "matchPackageNames": ["github.com/proxy-wasm/proxy-wasm-go-sdk"],
+      "groupName": "proxy-wasm-go-sdk"
+    },
+    {
+      "description": "Automerge patch updates for Actions (non-major)",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["patch"],
+      "automerge": true
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Docker image pin in Makefile (ENVOY_IMAGE=repo:tag → currentValue is tag only)",
+      "managerFilePatterns": ["/(^|/)Makefile$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>docker) depName=(?<depName>[^\\s]+?)(?: versioning=(?<versioning>[^\\s]+))?\\s*\\n[A-Z0-9_]+_IMAGE \\?= [^:\\s\\n]+:(?<currentValue>[^\\s\\n]+)"
+      ],
+      "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}docker{{/if}}"
+    },
+    {
+      "customType": "regex",
+      "description": "Envoy / k6 defaults in perf run-k6.sh",
+      "managerFilePatterns": ["/(^|/)test/perf/run-k6\\.sh$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>docker) depName=(?<depName>[^\\s]+?)(?: versioning=(?<versioning>[^\\s]+))?\\s*\\n[A-Z0-9_]+_IMAGE=\"\\$\\{[A-Z0-9_]+_IMAGE:-[^:]+:(?<currentValue>[^}]+)\\}\""
+      ],
+      "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}docker{{/if}}"
+    },
+    {
+      "customType": "regex",
+      "description": "Docker image tags in test compose files",
+      "managerFilePatterns": [
+        "/(^|/)test/perf/docker-compose\\.k6\\.yml$/",
+        "/(^|/)example/envoy/docker-compose\\.yml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>docker) depName=(?<depName>grafana/k6)(?: versioning=(?<versioning>[^\\s]+))?\\s*\\n\\s+image: \\$\\{K6_IMAGE:-grafana/k6:(?<currentValue>[^}]+)\\}",
+        "# renovate: datasource=(?<datasource>docker) depName=(?<depName>envoyproxy/envoy)(?: versioning=(?<versioning>[^\\s]+))?\\s*\\n\\s+image: \\$\\{ENVOY_IMAGE:-envoyproxy/envoy:(?<currentValue>[^}]+)\\}",
+        "# renovate: datasource=(?<datasource>docker) depName=(?<depName>envoyproxy/envoy)(?: versioning=(?<versioning>[^\\s]+))?\\s*\\n\\s+image: envoyproxy/envoy:(?<currentValue>[^\\s\\n]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}docker{{/if}}"
+    },
+    {
+      "customType": "regex",
+      "description": "Hardcoded Envoy image tags in GitHub workflow steps",
+      "managerFilePatterns": ["/(^|/)\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": [
+        "envoyproxy/envoy:(?<currentValue>v[^\\s\"']+)"
+      ],
+      "depNameTemplate": "envoyproxy/envoy",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "loose"
+    },
+    {
+      "customType": "regex",
+      "description": "bats-core pin in test/install-test-tools.sh",
+      "managerFilePatterns": ["/(^|/)test/install-test-tools\\.sh$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+?)(?: versioning=(?<versioning>[^\\s]+))?\\s*\\nBATS_VERSION=\"\\$\\{BATS_VERSION:-(?<currentValue>v[^\"]+)\\}\""
+      ],
+      "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver-coerced{{/if}}"
+    }
+  ]
+}

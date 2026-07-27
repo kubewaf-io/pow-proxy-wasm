@@ -1,4 +1,4 @@
-# Shared helpers for challenge-proxy-wasm Envoy integration tests (bats).
+# Shared helpers for pow-proxy-wasm Envoy integration tests (bats).
 set -euo pipefail
 
 if [[ -z "${SCRIPT_DIR:-}" ]]; then
@@ -15,7 +15,7 @@ fi
 WASM="${WASM:-$ROOT_DIR/build/main.wasm}"
 ENVOY_YAML="${ENVOY_YAML:-$ROOT_DIR/test/fixtures/envoy.yaml}"
 ENVOY_IMAGE="${ENVOY_IMAGE:-envoyproxy/envoy:v1.33-latest}"
-CONTAINER_NAME="${CONTAINER_NAME:-challenge-proxy-wasm-test-envoy}"
+CONTAINER_NAME="${CONTAINER_NAME:-pow-proxy-wasm-test-envoy}"
 HOST_PORT="${HOST_PORT:-18080}"
 ADMIN_PORT="${ADMIN_PORT:-19901}"
 REQUIRED_RUNTIME="${REQUIRED_RUNTIME:-envoy.wasm.runtime.v8}"

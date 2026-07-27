@@ -1,6 +1,7 @@
 # k6 performance test stack for pow-proxy-wasm.
 services:
   envoy:
+    # renovate: datasource=docker depName=envoyproxy/envoy versioning=loose
     image: ${ENVOY_IMAGE:-envoyproxy/envoy:v1.33-latest}
     container_name: ${PERF_ENVOY_CONTAINER:-pow-proxy-wasm-perf-envoy}
     command: ["envoy", "-c", "/etc/envoy.yaml", "--log-level", "warn"]

@@ -1,6 +1,7 @@
 services:
   envoy:
     # Standard Envoy image works with Go wasip1 WASM + V8 runtime.
+    # renovate: datasource=docker depName=envoyproxy/envoy versioning=loose
     image: envoyproxy/envoy:v1.33-latest
     ports:
       - "8080:8080"
