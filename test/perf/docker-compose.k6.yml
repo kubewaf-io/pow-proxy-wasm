@@ -2,7 +2,7 @@
 services:
   envoy:
     # renovate: datasource=docker depName=envoyproxy/envoy versioning=loose
-    image: ${ENVOY_IMAGE:-envoyproxy/envoy:v1.39-latest}
+    image: ${ENVOY_IMAGE:-envoyproxy/envoy:v1.39.0}
     container_name: ${PERF_ENVOY_CONTAINER:-pow-proxy-wasm-perf-envoy}
     command: ["envoy", "-c", "/etc/envoy.yaml", "--log-level", "warn"]
     ports:
