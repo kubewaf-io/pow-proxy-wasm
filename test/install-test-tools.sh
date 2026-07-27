@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOLS_DIR="$SCRIPT_DIR/.tools"
 
 # renovate: datasource=github-tags depName=bats-core/bats-core versioning=semver-coerced
-BATS_VERSION="${BATS_VERSION:-v1.11.1}"
+BATS_VERSION="${BATS_VERSION:-v1.14.0}"
 
 install_bats() {
   if command -v bats >/dev/null 2>&1; then
