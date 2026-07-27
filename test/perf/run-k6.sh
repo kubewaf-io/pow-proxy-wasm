@@ -25,7 +25,7 @@ PERF_HOST_PORT="${PERF_HOST_PORT:-18080}"
 PERF_ADMIN_PORT="${PERF_ADMIN_PORT:-19901}"
 PERF_ENVOY_CONTAINER="${PERF_ENVOY_CONTAINER:-pow-proxy-wasm-perf-envoy}"
 # renovate: datasource=docker depName=envoyproxy/envoy versioning=loose
-ENVOY_IMAGE="${ENVOY_IMAGE:-envoyproxy/envoy:v1.33-latest}"
+ENVOY_IMAGE="${ENVOY_IMAGE:-envoyproxy/envoy:v1.39.0}"
 # renovate: datasource=docker depName=grafana/k6
 K6_IMAGE="${K6_IMAGE:-grafana/k6:0.57.0}"
 KEEP_RUNNING="${KEEP_RUNNING:-0}"

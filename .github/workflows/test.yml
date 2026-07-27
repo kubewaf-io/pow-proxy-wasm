@@ -55,9 +55,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y curl git
       - name: Pre-pull Envoy image
-        run: docker pull envoyproxy/envoy:v1.33-latest
+        run: docker pull envoyproxy/envoy:v1.39.0
       - name: Bats integration tests
-        run: make test-bats ENVOY_IMAGE=envoyproxy/envoy:v1.33-latest
+        run: make test-bats ENVOY_IMAGE=envoyproxy/envoy:v1.39.0
 
   perf:
     needs: build
@@ -78,7 +78,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y curl git python3 python3-matplotlib
       - name: k6 performance (baseline vs valid token + chart)
-        run: make test-perf-k6-ci ENVOY_IMAGE=envoyproxy/envoy:v1.33-latest
+        run: make test-perf-k6-ci ENVOY_IMAGE=envoyproxy/envoy:v1.39.0
       - name: Verify comparison chart
         if: always()
         run: |

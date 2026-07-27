@@ -6,7 +6,7 @@ IMAGE ?= ghcr.io/kubewaf-io/pow-proxy-wasm:latest
 DOCKER ?= docker
 
 # renovate: datasource=docker depName=envoyproxy/envoy versioning=loose
-ENVOY_IMAGE ?= envoyproxy/envoy:v1.33-latest
+ENVOY_IMAGE ?= envoyproxy/envoy:v1.39.0
 
 ROOT_DIR := $(abspath .)
 TEST_DIR := $(ROOT_DIR)/test
