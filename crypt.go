@@ -29,6 +29,10 @@ const (
 	// MinSecretLen is the minimum accepted HMAC secret length.
 	MinSecretLen = 32
 
+	// RenewalTTLMultiple is the factor applied to the renewal window to derive
+	// the Max-Age of a re-issued clearance cookie when renewal_ttl is unset.
+	RenewalTTLMultiple = 6
+
 	// clearanceSaltLen is the random salt size embedded in fixed-layout clearance tokens.
 	clearanceSaltLen = 16
 	// clearanceFixedPrefix is exp (8) + salt (16).
@@ -290,9 +294,24 @@ func VerifyClearance(secret SecretKey, token string, expectedIP string) error {
 }
 
 func verifyClearanceMAC(mac hash.Hash, sumBuf []byte, token string, expectedIP string) error {
+	exp, err := parseClearanceMAC(mac, sumBuf, token, expectedIP)
+	if err != nil {
+		return err
+	}
+	if time.Now().Unix() > exp {
+		return ErrExpired
+	}
+	return nil
+}
+
+// parseClearanceMAC validates format, HMAC signature, and IP binding of a
+// clearance token, returning its expiry (unix seconds) without applying any
+// expiry policy. Callers decide validity (verifyClearanceMAC) or sliding
+// renewal eligibility (shouldRenewClearance).
+func parseClearanceMAC(mac hash.Hash, sumBuf []byte, token string, expectedIP string) (int64, error) {
 	body, sig, ok := strings.Cut(token, ".")
 	if !ok || body == "" || sig == "" {
-		return ErrInvalidToken
+		return 0, ErrInvalidToken
 	}
 
 	mac.Reset()
@@ -301,28 +320,31 @@ func verifyClearanceMAC(mac hash.Hash, sumBuf []byte, token string, expectedIP s
 
 	sigBytes, err := base64.RawURLEncoding.DecodeString(sig)
 	if err != nil {
-		return ErrBadSignature
+		return 0, ErrBadSignature
 	}
 	if subtle.ConstantTimeCompare(expectedSig, sigBytes) != 1 {
-		return ErrBadSignature
+		return 0, ErrBadSignature
 	}
 
 	exp, tokenIP, err := decodeClearanceBody(body)
 	if err != nil {
-		return err
-	}
-
-	if time.Now().Unix() > exp {
-		return ErrExpired
+		return 0, err
 	}
 
 	if expectedIP != "" {
 		if tokenIP == "" || tokenIP != expectedIP {
-			return ErrContextMismatch
+			return 0, ErrContextMismatch
 		}
 	}
 
-	return nil
+	return exp, nil
+}
+
+// shouldRenewClearance reports whether an expired clearance belongs to a
+// client that is still active: the token expired at most windowSec ago
+// (and now is past exp). windowSec <= 0 disables sliding renewal.
+func shouldRenewClearance(exp, now, windowSec int64) bool {
+	return windowSec > 0 && now > exp && now-exp <= windowSec
 }
 
 // ChallengeCookieMaxAge returns Max-Age seconds for challenge cookies (aligned with ChallengeLifetime).

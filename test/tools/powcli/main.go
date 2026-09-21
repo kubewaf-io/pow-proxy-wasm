@@ -51,12 +51,12 @@ func main() {
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `usage:
-  powcli mint-clearance -secret S -ip IP
+  powcli mint-clearance -secret S -ip IP [-expires-in 30m]
   powcli solve -secret S -challenge C -signature SIG
   powcli solve-cookies -secret S -cookie "challenge=...; challenge-sig=..."
 
 Outputs:
-  mint-clearance  → clearance token on stdout
+  mint-clearance  → clearance token on stdout (-expires-in <0 → expired)
   solve*          → JSON {"c":"...","s":"...","n":123} and cookie header lines on stderr
 `)
 }
@@ -65,9 +65,11 @@ func cmdMintClearance(args []string) {
 	fs := flag.NewFlagSet("mint-clearance", flag.ExitOnError)
 	secret := fs.String("secret", "", "HMAC secret (≥32 bytes)")
 	ip := fs.String("ip", "", "client IP to bind")
+	expiresIn := fs.Duration("expires-in", clearanceLifetime,
+		"lifetime of the minted clearance (e.g. 30m; negative → already expired)")
 	_ = fs.Parse(args)
 	mustSecret(*secret)
-	tok, err := generateClearance([]byte(*secret), *ip)
+	tok, err := generateClearance([]byte(*secret), *ip, *expiresIn)
 	if err != nil {
 		fail(err)
 	}
@@ -155,12 +157,12 @@ type challengePayload struct {
 // Fixed-layout clearance (mirrors crypt.go option B):
 // body = base64url(exp_be64 || salt16 || ip_utf8)
 // token = body + "." + base64url(HMAC-SHA256(body))
-func generateClearance(secret []byte, context string) (string, error) {
+func generateClearance(secret []byte, context string, lifetime time.Duration) (string, error) {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
-	exp := time.Now().Add(clearanceLifetime).Unix()
+	exp := time.Now().Add(lifetime).Unix()
 	ipb := []byte(context)
 	raw := make([]byte, 8+16+len(ipb))
 	binary.BigEndian.PutUint64(raw[0:8], uint64(exp))

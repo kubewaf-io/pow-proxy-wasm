@@ -17,6 +17,7 @@ A lightweight, stateless browser challenge (Proof-of-Work) Proxy-WASM filter for
   - Per-request override via `x-challenge-difficulty` header
   - Self-contained adaptive difficulty based on traffic pressure (local counter + periodic tick, low overhead)
 - Fully stateless using HMAC-SHA256 (configurable secret)
+- **Sliding renewal** (opt-in, off by default): continuously active clients (dashboards, pollers) are re-issued clearance after expiry instead of being re-challenged — configurable window (`sliding_renewal_ttl`) and renewed TTL (`renewal_ttl`); still fully stateless
 - Self-contained challenge page (single-file HTML/JS, no external deps)
 - Cookie-based solution (no extra POST/roundtrip)
 - Optional extra response header injection via config
@@ -39,7 +40,9 @@ A lightweight, stateless browser challenge (Proof-of-Work) Proxy-WASM filter for
   "base_difficulty": 18,
   "min_difficulty": 12,
   "max_difficulty": 26,
-  "client_ip_source": "auto"
+  "client_ip_source": "auto",
+  "sliding_renewal_ttl": 10,
+  "renewal_ttl": 60
 }
 ```
 
@@ -47,6 +50,8 @@ A lightweight, stateless browser challenge (Proof-of-Work) Proxy-WASM filter for
 - `header` / `value`: optional response header injection.
 - Difficulty bounds respected; dynamic pressure can bump up to +6 under load.
 - `client_ip_source`: `auto` (default: `source.address` → XFF → X-Real-IP) or `source_address` (peer only; skips header hostcalls — best at the edge).
+- `sliding_renewal_ttl`: seconds after clearance expiry during which a still-active client is silently re-issued a fresh clearance instead of receiving a new PoW challenge. **Off by default** (absent or `0` — existing configs behave exactly as before); set to a positive value (e.g. `10`) to enable. Set the window above your clients' slowest legitimate polling interval.
+- `renewal_ttl`: Max-Age (seconds) of the re-issued clearance cookie. Default: `6 × sliding_renewal_ttl`. Only used when sliding renewal is enabled.
 
 **Hot path (valid clearance):** one cookie scan → peer/IP resolve → fixed-layout HMAC verify (no JSON) → continue. Skips `connection.id` and HTTPS detection on pass-through.
 
@@ -141,9 +146,10 @@ See [example/envoy/README.md](example/envoy/README.md) for more.
 ## Timers
 
 | Credential | Lifetime | Notes |
-|------------|----------|--------|
+|------------|----------|-------|
 | Challenge + solve cookies | **60s** | Must match; cookie Max-Age == `ChallengeLifetime` |
 | Clearance cookie | **30 min** | Issued after successful solve; HttpOnly; IP-bound |
+| Renewed clearance (sliding, opt-in) | **`renewal_ttl`** (default `6 × sliding_renewal_ttl` = 60s) | When enabled: re-issued on any request presenting a valid clearance that expired at most `sliding_renewal_ttl` ago; HttpOnly; IP-bound |
 
 ## Client binding (IP + connection.id)
 
@@ -165,6 +171,7 @@ The waiting page automatically follows `prefers-color-scheme` (system / browser 
 - `secret` is mandatory (≥ 32 bytes); never ship a shared default.
 - Challenge/solve window is short (60s); access continues via clearance (30 min).
 - Clearance is still a bearer cookie (shareable). IP binding reduces cross-client reuse; true one-time nonces would need shared state.
+- Sliding renewal extends a (stolen) clearance's life while its holder keeps requesting within `sliding_renewal_ttl` of expiry; IP binding plus a small window bound that risk. Set `sliding_renewal_ttl: 0` to disable.
 - Context binding uses connection peer / trusted XFF — configure Envoy hop trust correctly.
 - This is a layer-7 challenge; combine with rate-limit, WAF, mTLS etc.
 

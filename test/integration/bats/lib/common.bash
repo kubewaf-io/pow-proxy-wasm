@@ -235,6 +235,44 @@ print(f"clearance={clearance}")
 PY
 }
 
+# Client IP as seen by the plugin: issues a challenge and decodes its ctx field
+# (challenge payloads embed the resolved client identity).
+# Prints the IP string (may be empty if the plugin could not resolve one).
+envoy_client_ip() {
+  HOST_PORT="$HOST_PORT" python3 - <<'PY'
+import base64
+import http.client
+import json
+import os
+import re
+import sys
+
+host = "127.0.0.1"
+port = int(os.environ["HOST_PORT"])
+conn = http.client.HTTPConnection(host, port, timeout=30)
+conn.request("GET", "/", headers={"Host": "localhost"})
+resp = conn.getresponse()
+resp.read()
+if resp.status != 403:
+    print(f"expected 403 challenge, got {resp.status}", file=sys.stderr)
+    sys.exit(1)
+
+challenge = ""
+for k, v in resp.getheaders():
+    if k.lower() == "set-cookie" and v.startswith("challenge="):
+        challenge = re.match(r"challenge=([^;]*)", v).group(1)
+        break
+conn.close()
+if not challenge:
+    print("missing challenge cookie", file=sys.stderr)
+    sys.exit(1)
+
+pad = "=" * (-len(challenge) % 4)
+payload = json.loads(base64.urlsafe_b64decode(challenge + pad))
+print(payload.get("ctx", ""))
+PY
+}
+
 # Convenience: only the clearance token value.
 envoy_get_clearance() {
   local line

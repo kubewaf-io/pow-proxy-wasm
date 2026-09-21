@@ -47,7 +47,9 @@ static_resources:
                               "base_difficulty": 8,
                               "min_difficulty": 4,
                               "max_difficulty": 16,
-                              "client_ip_source": "source_address"
+                              "client_ip_source": "source_address",
+                              "sliding_renewal_ttl": 10,
+                              "renewal_ttl": 60
                             }
                         vm_config:
                           runtime: "envoy.wasm.runtime.v8"

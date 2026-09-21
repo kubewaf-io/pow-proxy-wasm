@@ -23,6 +23,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
 	_ "embed" // blank import required for //go:embed
 
@@ -85,6 +86,13 @@ type pluginContext struct {
 
 	// clientIPSource from config (auto | source_address).
 	clientIPSource clientIPSource
+
+	// Sliding renewal: re-issue clearance to still-active clients instead of
+	// re-challenging. slidingRenewalTTL is the grace window (seconds) after
+	// clearance expiry; 0 disables. renewalTTL is the Max-Age (seconds) of a
+	// re-issued clearance cookie.
+	slidingRenewalTTL int64
+	renewalTTL        int64
 
 	// Local counters for pressure tracking (avoid per-request shared data host calls)
 	challengeCounter uint64
@@ -157,6 +165,15 @@ func (p *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlugi
 		p.baseDifficulty = p.maxDifficulty
 	}
 
+	// Sliding renewal: active clients with a recently expired clearance are
+	// re-issued a cookie instead of a new PoW challenge.
+	p.slidingRenewalTTL, p.renewalTTL = parseSlidingRenewalConfig(data)
+	if p.slidingRenewalTTL > 0 {
+		proxywasm.LogInfof("sliding renewal: window=%ds renewal_ttl=%ds", p.slidingRenewalTTL, p.renewalTTL)
+	} else {
+		proxywasm.LogInfo("sliding renewal disabled")
+	}
+
 	// client_ip_source: "auto" (default) | "source_address"
 	switch strings.ToLower(strings.TrimSpace(gjson.GetBytes(data, "client_ip_source").Str)) {
 	case "source_address", "peer", "source":
@@ -190,6 +207,32 @@ func (p *pluginContext) clientIPSourceString() string {
 	return "auto"
 }
 
+// parseSlidingRenewalConfig resolves sliding renewal settings from raw plugin JSON.
+//
+//	sliding_renewal_ttl: seconds after clearance expiry during which a
+//	still-active client is re-issued clearance instead of a new challenge.
+//	Off by default (backward compatible); set >0 to enable, 0/negative
+//	keeps it disabled.
+//	renewal_ttl: Max-Age (seconds) for re-issued clearance cookies; defaults
+//	to RenewalTTLMultiple × window when unset.
+//
+// Returns (window, ttl); (0, 0) when the feature is disabled.
+func parseSlidingRenewalConfig(data []byte) (window, ttl int64) {
+	if v := gjson.GetBytes(data, "sliding_renewal_ttl"); v.Exists() {
+		window = v.Int()
+		if window < 0 {
+			window = 0
+		}
+	}
+	if window == 0 {
+		return 0, 0
+	}
+	if v := gjson.GetBytes(data, "renewal_ttl"); v.Exists() && v.Int() > 0 {
+		return window, v.Int()
+	}
+	return window, RenewalTTLMultiple * window
+}
+
 // httpHeaders implements types.HttpContext.
 type httpHeaders struct {
 	// Embed the default http context here,
@@ -205,8 +248,13 @@ type httpHeaders struct {
 	// issueClearance is set when a fresh PoW solution was accepted; OnHttpResponseHeaders
 	// mints the longer-lived clearance cookie and drops one-shot challenge cookies.
 	issueClearance bool
-	client         ClientContext
-	secureCookie   bool
+
+	// renewClearance is set when an expired clearance was presented within the
+	// sliding renewal window; OnHttpResponseHeaders re-issues the cookie.
+	renewClearance bool
+
+	client       ClientContext
+	secureCookie bool
 }
 
 // OnHttpRequestHeaders implements types.HttpContext.
@@ -221,13 +269,28 @@ func (ctx *httpHeaders) OnHttpRequestHeaders(numHeaders int, endOfStream bool) t
 	// 1) Long-lived clearance first (preferred after a successful solve) — IP-only bind.
 	if cookies.clearance != "" {
 		ip := p.resolveClientIP()
-		if err := verifyClearanceMAC(p.mac, p.macSumBuf[:0], cookies.clearance, ip); err == nil {
+		exp, err := parseClearanceMAC(p.mac, p.macSumBuf[:0], cookies.clearance, ip)
+		now := time.Now().Unix()
+		switch {
+		case err != nil:
+			// Debug only: stale/invalid cookies are common under load.
+			proxywasm.LogDebugf("challenge: clearance verification failed: %v", err)
+		case now <= exp:
+			// Hot path: valid clearance.
 			ctx.client = ClientContext{IP: ip}
 			proxywasm.LogDebugf("challenge: verified clearance (ctx=%s)", ip)
 			return types.ActionContinue
-		} else {
-			// Debug only: stale/invalid cookies are common under load.
-			proxywasm.LogDebugf("challenge: clearance verification failed: %v", err)
+		case shouldRenewClearance(exp, now, p.slidingRenewalTTL):
+			// Sliding renewal: expired but still active — re-issue silently
+			// instead of re-challenging (dashboards, polling clients).
+			ctx.client = ClientContext{IP: ip}
+			ctx.renewClearance = true
+			ctx.secureCookie = requestIsHTTPS() // only needed when minting cookies on response
+			proxywasm.LogDebugf("challenge: sliding renewal (ctx=%s, expired %ds ago)", ip, now-exp)
+			return types.ActionContinue
+		default:
+			// Expired beyond the renewal window (or renewal disabled).
+			proxywasm.LogDebugf("challenge: clearance expired beyond renewal window (ctx=%s, %ds ago)", ip, now-exp)
 		}
 	}
 
@@ -321,6 +384,19 @@ func (ctx *httpHeaders) OnHttpResponseHeaders(_ int, _ bool) types.Action {
 			_ = proxywasm.AddHttpResponseHeader("Set-Cookie", clearCookie("challenge-sig", ctx.secureCookie))
 			_ = proxywasm.AddHttpResponseHeader("Set-Cookie", clearCookie("challenge-nonce", ctx.secureCookie))
 			proxywasm.LogDebugf("challenge: issued clearance (ctx=%s, max-age=%d)", ctx.client.ClearanceBind(), ClearanceCookieMaxAge())
+		}
+	}
+
+	// Sliding renewal: an expired-but-active clearance gets a fresh cookie.
+	// No solve cookies to drop — clearance is already the only credential here.
+	if ctx.renewClearance {
+		token, err := generateClearanceMAC(ctx.plugin.mac, ctx.plugin.macSumBuf[:0], ctx.client.ClearanceBind())
+		if err != nil {
+			proxywasm.LogErrorf("failed to generate renewed clearance: %v", err)
+		} else {
+			_ = proxywasm.AddHttpResponseHeader("Set-Cookie",
+				setCookie("challenge-clearance", token, int(ctx.plugin.renewalTTL), true, ctx.secureCookie))
+			proxywasm.LogDebugf("challenge: renewed clearance (ctx=%s, max-age=%d)", ctx.client.ClearanceBind(), ctx.plugin.renewalTTL)
 		}
 	}
 
